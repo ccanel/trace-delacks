@@ -1,0 +1,64 @@
+#include <linux/tcp.h>
+#include <net/tcp.h>
+#include <net/inet_connection_sock.h>
+#include <net/netns/ipv4.h>
+
+BEGIN
+{
+    printf("Tracing port 8888. Press Ctrl-C to end...");
+}
+
+kfunc:__tcp_ack_snd_check {
+    $sk = args->sk;
+    $lport = $sk->__sk_common.skc_num;
+
+    if ($lport != 8888) {
+        return;
+    }
+
+    printf("__tcp_ack_snd_check()\n");
+
+    $tp = (struct tcp_sock *) $sk;
+    $icsk = (struct inet_connection_sock *) $tp;
+    $icsk_ack = $icsk->icsk_ack;
+
+    printf("\tpingpong: %u, rcv_mss: %u, ato: %u\n", $icsk_ack.pingpong, $icsk_ack.rcv_mss, $icsk_ack.ato);
+
+}
+
+kfunc:tcp_send_ack {
+    $sk = args->sk;
+    $lport = $sk->__sk_common.skc_num;
+
+    if ($lport != 8888) {
+        return;
+    }
+
+    printf("tcp_send_ack()\n");
+}
+
+kfunc:tcp_delack_timer {
+    printf("tcp_delack_timer()\n");
+}
+
+kfunc:tcp_delack_timer_handler {
+    $sk = args->sk;
+    $lport = $sk->__sk_common.skc_num;
+
+    if ($lport != 8888) {
+        return;
+    }
+
+    printf("tcp_delack_timer_handler()\n");
+}
+
+kfunc:tcp_send_delayed_ack {
+    $sk = args->sk;
+    $lport = $sk->__sk_common.skc_num;
+
+    if ($lport != 8888) {
+        return;
+    }
+
+    printf("tcp_send_delayed_ack()\n");
+}
