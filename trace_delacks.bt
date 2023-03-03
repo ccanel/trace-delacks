@@ -33,7 +33,6 @@ kfunc:__tcp_ack_snd_check {
         $tp->rcv_nxt, $tp->rcv_wup, $tp->rcv_nxt - $tp->rcv_wup);
     printf("\tack_pending: %u, ICSK_ACK_NOW: %u\n",
 	$icsk_ack.pending, ICSK_ACK_NOW);
-
 }
 
 kfunc:tcp_send_ack {
