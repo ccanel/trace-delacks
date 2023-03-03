@@ -1,5 +1,23 @@
-// Usage:
-//     $ sudo bpftrace trace_delacks.bt
+/*
+ * Copyright 2023 Christopher Canel
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+/*
+ * Usage:
+ *     $ sudo bpftrace trace_delacks.bt
+ */
 
 #include <linux/tcp.h>
 #include <net/tcp.h>
@@ -21,7 +39,8 @@ kfunc:__tcp_ack_snd_check {
         return;
     }
 
-    printf("__tcp_ack_snd_check(%u, %d) %u, %u\n", $sk, args->ofo_possible, $dport, $lport);
+    printf("__tcp_ack_snd_check(sk=%u, ofo_possible=%d) local=%u->remote=%u\n",
+        $sk, args->ofo_possible, $lport, $dport);
 
     $tp = (struct tcp_sock *) $sk;
     $icsk = (struct inet_connection_sock *) $tp;
@@ -45,7 +64,7 @@ kfunc:tcp_send_ack {
         return;
     }
 
-    printf("tcp_send_ack(%u) %u, %u\n", $sk, $dport, $lport);
+    printf("tcp_send_ack(sk=%u) local=%u->remote=%u\n", $sk, $lport, $dport);
 }
 
 kfunc:tcp_delack_timer {
@@ -62,7 +81,7 @@ kfunc:tcp_delack_timer_handler {
         return;
     }
 
-    printf("tcp_delack_timer_handler(%u) %u,%u \n", $sk, $dport, $lport);
+    printf("tcp_delack_timer_handler(sk=%u) local=%u->remote=%u \n", $sk, $lport, $dport);
 }
 
 kfunc:tcp_send_delayed_ack {
@@ -72,8 +91,8 @@ kfunc:tcp_send_delayed_ack {
     $dport = bswap($dport);
 
     if ($dport != 8000) {
-       return;
+         return;
     }
 
-    printf("tcp_send_delayed_ack(%u) %u, %u\n", $sk, $dport, $lport);
+    printf("tcp_send_delayed_ack(sk=%u) local=%u->remote=%u\n", $sk, $lport, $dport);
 }
