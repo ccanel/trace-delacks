@@ -15,6 +15,7 @@ kfunc:__tcp_ack_snd_check {
     $sk = args->sk;
     $lport = $sk->__sk_common.skc_num;
     $dport = $sk->__sk_common.skc_dport;
+    $dport = bswap($dport);
 
     if ($dport != 8000) {
         return;
@@ -39,6 +40,7 @@ kfunc:tcp_send_ack {
     $sk = args->sk;
     $lport = $sk->__sk_common.skc_num;
     $dport = $sk->__sk_common.skc_dport;
+    $dport = bswap($dport);
 
     if ($dport != 8000) {
         return;
@@ -55,6 +57,7 @@ kfunc:tcp_delack_timer_handler {
     $sk = args->sk;
     $lport = $sk->__sk_common.skc_num;
     $dport = $sk->__sk_common.skc_dport;
+    $dport = bswap($dport);
 
     if ($dport != 8000) {
         return;
@@ -67,6 +70,7 @@ kfunc:tcp_send_delayed_ack {
     $sk = args->sk;
     $lport = $sk->__sk_common.skc_num;
     $dport = $sk->__sk_common.skc_dport;
+    $dport = bswap($dport);
 
     if ($dport != 8000) {
        return;
