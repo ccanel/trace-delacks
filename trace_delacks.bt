@@ -19,13 +19,16 @@ kfunc:__tcp_ack_snd_check {
         return;
     }
 
-    printf("__tcp_ack_snd_check()\n");
+    printf("__tcp_ack_snd_check(%u, %d)\n", $sk, args->ofo_possible);
 
     $tp = (struct tcp_sock *) $sk;
     $icsk = (struct inet_connection_sock *) $tp;
     $icsk_ack = $icsk->icsk_ack;
 
-    printf("\tpingpong: %u, rcv_mss: %u, ato: %u\n", $icsk_ack.pingpong, $icsk_ack.rcv_mss, $icsk_ack.ato);
+    printf("\tpingpong: %u, rcv_mss: %u, ato: %u\n",
+        $icsk_ack.pingpong, $icsk_ack.rcv_mss, $icsk_ack.ato);
+    printf("\trcv_nxt: %u, rcv_wup: %u, rcv_nxt - rcv_wup: %u\n",
+        $tp->rcv_nxt, $tp->rcv_wup, $tp->rcv_nxt - $tp->rcv_wup);
 
 }
 
