@@ -8,18 +8,19 @@
 
 BEGIN
 {
-    printf("Tracing port 8888. Press Ctrl-C to end...");
+    printf("Tracing remote port 8000. Press Ctrl-C to end...");
 }
 
 kfunc:__tcp_ack_snd_check {
     $sk = args->sk;
     $lport = $sk->__sk_common.skc_num;
+    $dport = $sk->__sk_common.skc_dport;
 
-    if ($lport != 8888) {
+    if ($dport != 8000) {
         return;
     }
 
-    printf("__tcp_ack_snd_check(%u, %d)\n", $sk, args->ofo_possible);
+    printf("__tcp_ack_snd_check(%u, %d) %u, %u\n", $sk, args->ofo_possible, $dport, $lport);
 
     $tp = (struct tcp_sock *) $sk;
     $icsk = (struct inet_connection_sock *) $tp;
@@ -29,18 +30,21 @@ kfunc:__tcp_ack_snd_check {
         $icsk_ack.pingpong, $icsk_ack.rcv_mss, $icsk_ack.ato);
     printf("\trcv_nxt: %u, rcv_wup: %u, rcv_nxt - rcv_wup: %u\n",
         $tp->rcv_nxt, $tp->rcv_wup, $tp->rcv_nxt - $tp->rcv_wup);
+    printf("\tack_pending: %u, ICSK_ACK_NOW: %u\n",
+	$icsk_ack.pending, ICSK_ACK_NOW);
 
 }
 
 kfunc:tcp_send_ack {
     $sk = args->sk;
     $lport = $sk->__sk_common.skc_num;
+    $dport = $sk->__sk_common.skc_dport;
 
-    if ($lport != 8888) {
+    if ($dport != 8000) {
         return;
     }
 
-    printf("tcp_send_ack()\n");
+    printf("tcp_send_ack(%u) %u, %u\n", $sk, $dport, $lport);
 }
 
 kfunc:tcp_delack_timer {
@@ -50,21 +54,23 @@ kfunc:tcp_delack_timer {
 kfunc:tcp_delack_timer_handler {
     $sk = args->sk;
     $lport = $sk->__sk_common.skc_num;
+    $dport = $sk->__sk_common.skc_dport;
 
-    if ($lport != 8888) {
+    if ($dport != 8000) {
         return;
     }
 
-    printf("tcp_delack_timer_handler()\n");
+    printf("tcp_delack_timer_handler(%u) %u,%u \n", $sk, $dport, $lport);
 }
 
 kfunc:tcp_send_delayed_ack {
     $sk = args->sk;
     $lport = $sk->__sk_common.skc_num;
+    $dport = $sk->__sk_common.skc_dport;
 
-    if ($lport != 8888) {
-        return;
+    if ($dport != 8000) {
+       return;
     }
 
-    printf("tcp_send_delayed_ack()\n");
+    printf("tcp_send_delayed_ack(%u) %u, %u\n", $sk, $dport, $lport);
 }
