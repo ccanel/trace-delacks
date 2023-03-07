@@ -31,6 +31,7 @@ BEGIN
 
 kfunc:__tcp_ack_snd_check {
     $sk = args->sk;
+    $ofo_possible = args->ofo_possible;
     $lport = $sk->__sk_common.skc_num;
     $dport = $sk->__sk_common.skc_dport;
     $dport = bswap($dport);
@@ -40,7 +41,9 @@ kfunc:__tcp_ack_snd_check {
     }
 
     printf("__tcp_ack_snd_check(sk=%u, ofo_possible=%d) local=%u->remote=%u\n",
-        $sk, args->ofo_possible, $lport, $dport);
+        $sk, $ofo_possible, $lport, $dport);
+    // printf("\tStacktrace:");
+    // print(kstack);
 
     $tp = (struct tcp_sock *) $sk;
     $icsk = (struct inet_connection_sock *) $tp;
@@ -48,10 +51,135 @@ kfunc:__tcp_ack_snd_check {
 
     printf("\tpingpong: %u, rcv_mss: %u, ato: %u\n",
         $icsk_ack.pingpong, $icsk_ack.rcv_mss, $icsk_ack.ato);
-    printf("\trcv_nxt: %u, rcv_wup: %u, rcv_nxt - rcv_wup: %u\n",
+    printf("\trcv_nxt: %u, rcv_wup: %u, ACKed bytes (rcv_nxt - rcv_wup): %u\n",
         $tp->rcv_nxt, $tp->rcv_wup, $tp->rcv_nxt - $tp->rcv_wup);
     printf("\tack_pending: %u, ICSK_ACK_NOW: %u\n",
-	$icsk_ack.pending, ICSK_ACK_NOW);
+	    $icsk_ack.pending, ICSK_ACK_NOW);
+    printf("\trcv_wnd: %u\n",$tp->rcv_wnd);
+
+	/* More than one full frame received... */
+	if (($tp->rcv_nxt - $tp->rcv_wup) > $icsk_ack.rcv_mss &&
+	     /* ... and right edge of window advances far enough.
+	      * (tcp_recvmsg() will send ACK otherwise).
+	      * If application uses SO_RCVLOWAT, we want send ack now if
+	      * we have not received enough bytes to satisfy the condition.
+	      */
+	    ($tp->rcv_nxt - $tp->copied_seq < $sk->sk_rcvlowat)) {
+	    // __tcp_select_window(sk) >= $tp->rcv_wnd)) {
+        printf("\tProbably ACKing now...due to window\n");
+    }
+
+    /* OR We ACK each frame or... */
+    // if (tcp_in_quickack_mode(sk)) {
+    if ($icsk_ack.quick && $icsk_ack.pingpong < TCP_PINGPONG_THRESH) {
+        printf("\tProbably ACKing now...due to quickack\n");
+    }
+    /* OR Protocol state mandates a one-time immediate ACK */
+    if ($icsk_ack.pending & ICSK_ACK_NOW) {
+        printf("\tProbably ACKing now...due to force\n");
+	}
+
+    if ($ofo_possible) {
+        printf("\tProbably NOT scheduling delayed ACK\n");
+    } else {
+        printf("\tProbably scheduling delayed ACK\n");
+    }
+
+}
+
+kfunc:tcp_cleanup_rbuf {
+    $sk = args->sk;
+    $copied = args->copied;
+    $lport = $sk->__sk_common.skc_num;
+    $dport = $sk->__sk_common.skc_dport;
+    $dport = bswap($dport);
+
+    if ($dport != 8000) {
+        return;
+    }
+
+    printf("tcp_cleanup_rbuf(sk=%u, copied=%u) local=%u->remote=%u\n",
+        $sk, $copied, $lport, $dport);
+
+    $tp = (struct tcp_sock *) $sk;
+    $icsk = (struct inet_connection_sock *) $tp;
+    $icsk_ack = $icsk->icsk_ack;
+    $time_to_ack = 0;
+
+    if ($icsk_ack.pending & ICSK_ACK_SCHED) {
+        printf("\trcv_nxt: %u, rcv_wup: %u, ACKed bytes (rcv_nxt - rcv_wup): %u, rcv_mss: %u\n",
+            $tp->rcv_nxt, $tp->rcv_wup, $tp->rcv_nxt - $tp->rcv_wup, $icsk_ack.rcv_mss);
+        /* Once-per-two-segments ACK was not sent by tcp_input.c */
+        if ($tp->rcv_nxt - $tp->rcv_wup > $icsk_ack.rcv_mss) {
+            printf("\tProbably time to ACK 1\n");
+            $time_to_ack = 1;
+        }
+
+        /*
+         * If this read emptied read buffer, we send ACK, if
+         * connection is not bidirectional, user drained
+         * receive buffer and there was a small segment
+         * in queue.
+         */
+        if (($copied > 0 &&
+                (($icsk_ack.pending & ICSK_ACK_PUSHED2) ||
+                (($icsk_ack.pending & ICSK_ACK_PUSHED) &&
+                $icsk_ack.pingpong < TCP_PINGPONG_THRESH)) &&
+                $sk->sk_rmem_alloc.counter == 0)) {
+            printf("\tProbably time to ACK 2\n");
+            $time_to_ack = 1;
+        }
+    }
+
+
+    /* We send an ACK if we can now advertise a non-zero window
+	 * which has been raised "significantly".
+	 *
+	 * Even if window raised up to infinity, do not send window open ACK
+	 * in states, where we will not receive more. It is useless.
+	 */
+	if ($copied > 0 && ($time_to_ack == 0) && (($sk->sk_shutdown & RCV_SHUTDOWN) == 0)) {
+        $tcp_receive_window = $tp->rcv_wup + $tp->rcv_wnd - $tp->rcv_nxt;
+        if ($tcp_receive_window < 0) {
+            $tcp_receive_window = 0;
+        }
+		$rcv_window_now = $tcp_receive_window;
+
+		/* Optimize, __tcp_select_window() is not cheap. */
+		if (2 * $rcv_window_now <= $tp->window_clamp) {
+            printf("\tMAYBE time to ACK 3\n");
+
+			// __u32 new_window = __tcp_select_window(sk);
+
+			/* Send ACK now, if this read freed lots of space
+			 * in our buffer. Certainly, new_window is new window.
+			 * We can advertise it now, if it is not less than current one.
+			 * "Lots" means "at least twice" here.
+			 */
+			// if ($new_window && $new_window >= 2 * $rcv_window_now) {
+            //     printf("\tProbably time to ACK 3\n");
+            // }
+
+		}
+    }
+}
+
+kretfunc:__tcp_select_window {
+    $sk = args->sk;
+    $lport = $sk->__sk_common.skc_num;
+    $dport = $sk->__sk_common.skc_dport;
+    $dport = bswap($dport);
+
+    if ($dport != 8000) {
+        return;
+    }
+
+    printf("__tcp_select_window(sk=%u) local=%u->remote=%u\n",
+        $sk, $lport, $dport);
+    // printf("\tStacktrace:");
+    // print(kstack);
+
+    printf("\tretval: %u\n", retval);
 }
 
 kfunc:tcp_send_ack {
@@ -64,11 +192,25 @@ kfunc:tcp_send_ack {
         return;
     }
 
-    printf("tcp_send_ack(sk=%u) local=%u->remote=%u\n", $sk, $lport, $dport);
+    printf("tcp_send_ack(sk=%u) local=%u->remote=%u\n",
+        $sk, $lport, $dport);
+    printf("\tStacktrace:");
+    print(kstack);
+
+    $tp = (struct tcp_sock *) $sk;
+    printf("\trcv_nxt: %u, rcv_wup: %u,  ACKed bytes (rcv_nxt - rcv_wup): %u\n",
+        $tp->rcv_nxt, $tp->rcv_wup, $tp->rcv_nxt - $tp->rcv_wup);
+}
+
+kfunc:__tcp_send_ack {
+    // For some reason, we cannot attach to __tcp_send_ack() directly.
+    // Attaching does not give an error, but code here is not executed.
 }
 
 kfunc:tcp_delack_timer {
     printf("tcp_delack_timer()\n");
+    // printf("\tStacktrace:");
+    // print(kstack);
 }
 
 kfunc:tcp_delack_timer_handler {
@@ -81,7 +223,10 @@ kfunc:tcp_delack_timer_handler {
         return;
     }
 
-    printf("tcp_delack_timer_handler(sk=%u) local=%u->remote=%u \n", $sk, $lport, $dport);
+    printf("tcp_delack_timer_handler(sk=%u) local=%u->remote=%u \n",
+        $sk, $lport, $dport);
+    // printf("\tStacktrace:");
+    // print(kstack);
 }
 
 kfunc:tcp_send_delayed_ack {
@@ -94,5 +239,16 @@ kfunc:tcp_send_delayed_ack {
          return;
     }
 
-    printf("tcp_send_delayed_ack(sk=%u) local=%u->remote=%u\n", $sk, $lport, $dport);
+    printf("tcp_send_delayed_ack(sk=%u) local=%u->remote=%u\n",
+        $sk, $lport, $dport);
+    // printf("\tStacktrace:");
+    // print(kstack);
+
+    $tp = (struct tcp_sock *) $sk;
+    printf("\trcv_nxt: %u, rcv_wup: %u,  ACKed bytes (rcv_nxt - rcv_wup): %u\n",
+        $tp->rcv_nxt, $tp->rcv_wup, $tp->rcv_nxt - $tp->rcv_wup);
+
+    $icsk = (struct inet_connection_sock *) $tp;
+    printf("\tato: %u, icsk_delack_max: %u\n",
+        $icsk->icsk_ack.ato, $icsk->icsk_delack_max);
 }
