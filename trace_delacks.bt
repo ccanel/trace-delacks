@@ -100,6 +100,8 @@ kfunc:tcp_cleanup_rbuf {
 
     printf("tcp_cleanup_rbuf(sk=%u, copied=%u) local=%u->remote=%u\n",
         $sk, $copied, $lport, $dport);
+    // printf("\tStacktrace:");
+    // print(kstack);
 
     $tp = (struct tcp_sock *) $sk;
     $icsk = (struct inet_connection_sock *) $tp;
@@ -205,6 +207,7 @@ kfunc:tcp_send_ack {
 kfunc:__tcp_send_ack {
     // For some reason, we cannot attach to __tcp_send_ack() directly.
     // Attaching does not give an error, but code here is not executed.
+    printf("Why isn't this executed?");
 }
 
 kfunc:tcp_delack_timer {
